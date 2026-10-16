@@ -1,0 +1,1 @@
+No meta.json on purpose: the fake extractor raises, so the daemon sends `error`.

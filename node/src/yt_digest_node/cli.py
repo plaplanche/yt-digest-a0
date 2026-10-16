@@ -1,8 +1,10 @@
-"""The `yt-digest-node` command (spec 5): `transcript <video_id>`, run end to end."""
+"""The `yt-digest-node` command: `transcript <video_id>`, run end to end (lot 1,
+section 5), and `work [--once]`, the daemon (lot 2, section 9)."""
 
 import argparse
 import os
 import re
+import signal
 import sys
 from collections.abc import Sequence
 
@@ -11,6 +13,7 @@ from yt_digest_node.contracts.log_event import LogEventName
 from yt_digest_node.extractor import extractor_from_env
 from yt_digest_node.log import emit
 from yt_digest_node.pipeline import config_from_env, parse_langs, transcript
+from yt_digest_node.work import Daemon, WorkerClient, settings_from_env
 
 VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
@@ -39,12 +42,16 @@ def _parser() -> argparse.ArgumentParser:
         "--langs", type=_langs, help="language order, comma-separated (e.g. fr,en)"
     )
     command.add_argument("--request-id", help="request id carried by the log lines")
+    work = commands.add_parser("work", help="process the Worker's jobs")
+    work.add_argument(
+        "--once", action="store_true", help="one heartbeat, one claim, then exit"
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Exit 0 with a result on stdout whatever its status; 2 on a bad argument or an
-    invalid configuration, without a result."""
+    """`transcript`: exit 0 with a result on stdout whatever its status. `work`: the
+    daemon's exit code. Both exit 2 on a bad argument or an invalid configuration."""
     parser = _parser()
     args = parser.parse_args(argv)
     try:
@@ -52,6 +59,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         extractor = extractor_from_env(os.environ)
     except ValueError as error:
         parser.error(str(error))
+    if args.command == "work":
+        try:
+            settings = settings_from_env(os.environ)
+        except ValueError as error:
+            parser.error(str(error))
+        emit(LogEventName.SERVICE_STARTED, attrs={"version": __version__})
+        client = WorkerClient(settings.worker_url, settings.node_token)
+        daemon = Daemon(client, settings, config, extractor, args.once)
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            signal.signal(signum, lambda *_: daemon.stop.set())
+        return daemon.run()
     emit(LogEventName.SERVICE_STARTED, attrs={"version": __version__})
     result = transcript(
         args.video_id, args.langs or config.langs, config, extractor, args.request_id
