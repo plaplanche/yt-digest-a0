@@ -44,6 +44,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.job.python || '3.12' }}
+          enable-cache: false
       - name: ${{ matrix.job.name }}
         shell: bash
         run: ${{ matrix.job.run }}
