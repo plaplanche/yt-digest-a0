@@ -1,5 +1,6 @@
 import type { ClaimedJob } from "./contracts/node-claim-response";
 import type { Env } from "./env";
+import { log } from "./log";
 
 /** A video id (spec/lot-2.md section 4.1). */
 export const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
@@ -83,4 +84,48 @@ export async function claimJobs(env: Env, nodeId: string, maxJobs: number, lease
 /** Compares strings by code unit, as SQLite's default BINARY collation does for ASCII text. */
 function compareText(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * The failure handling of section 8.7, as the SET clause of an UPDATE of `jobs`: the lease is
+ * cleared, and the job becomes `failed_video` (with `done_at` = `?now`) after its third attempt,
+ * else `queued`. `?outcome` is the `last_outcome`.
+ */
+export function failureSet(now: string, outcome: string): string {
+  return `status = CASE WHEN attempts >= 3 THEN 'failed_video' ELSE 'queued' END,
+         done_at = CASE WHEN attempts >= 3 THEN '${now}' ELSE done_at END,
+         leased_by = NULL, lease_id = NULL, lease_expires_at = NULL, last_outcome = '${outcome}'`;
+}
+
+/**
+ * The expiry sweep (section 8.6), one D1 batch: every `leased` job whose lease expires at or
+ * before now gets an `expired` lease, a `lease_expired` node event against its holder, and the
+ * failure handling. The first statement reads the holders, which the transaction keeps consistent
+ * with the writes that follow, so that a concurrent sweep never expires a lease twice.
+ */
+export async function sweepExpired(env: Env): Promise<void> {
+  const now = new Date().toISOString();
+  const expired = "status = 'leased' AND lease_expires_at <= ?1";
+  const [holders, , , swept] = await env.DB.batch<{ video_id: string; leased_by: string; attempts: number; status: string }>([
+    env.DB.prepare(`SELECT video_id, leased_by FROM jobs WHERE ${expired}`).bind(now),
+    env.DB.prepare(
+      `INSERT INTO node_events (node_id, ts, kind, video_id)
+       SELECT leased_by, ?1, 'lease_expired', video_id FROM jobs WHERE ${expired}`,
+    ).bind(now),
+    env.DB.prepare(
+      `UPDATE leases SET state = 'expired'
+       WHERE state = 'active' AND lease_id IN (SELECT lease_id FROM jobs WHERE ${expired})`,
+    ).bind(now),
+    env.DB.prepare(`UPDATE jobs SET ${failureSet(now, "lease_expired")} WHERE ${expired} RETURNING video_id, attempts, status`).bind(
+      now,
+    ),
+  ]);
+  const holderOf = new Map(holders.results.map((row) => [row.video_id, row.leased_by]));
+  for (const job of swept.results) {
+    log("job.lease_expired", {
+      level: "warn",
+      video_id: job.video_id,
+      attrs: { node_id: holderOf.get(job.video_id) ?? null, attempts: job.attempts, status: job.status },
+    });
+  }
 }

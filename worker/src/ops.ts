@@ -1,7 +1,8 @@
 import { randomBase64url, sha256Hex } from "./crypto";
 import type { Env } from "./env";
 import { bearer, HttpError, json, notFound, readBody, secretsEqual } from "./http";
-import { getJob, VIDEO_ID } from "./jobs";
+import { failureSet, getJob, sweepExpired, VIDEO_ID } from "./jobs";
+import { transcriptKey } from "./leases";
 import { log } from "./log";
 
 /** Every table of spec/lot-2.md section 6.3. */
@@ -35,6 +36,10 @@ export async function handleOps(request: Request, env: Env, path: string): Promi
   if (request.method === "POST" && path === "/ops/jobs") return enqueueJobs(request, env);
   const job = /^\/ops\/jobs\/([^/]+)$/.exec(path);
   if (request.method === "GET" && job) return readJob(env, decodeURIComponent(job[1]));
+  const node = /^\/ops\/nodes\/([^/]+)$/.exec(path);
+  if (request.method === "DELETE" && node) return revokeNode(env, decodeURIComponent(node[1]));
+  const transcript = /^\/ops\/transcripts\/([^/]+)$/.exec(path);
+  if (request.method === "GET" && transcript) return readTranscript(env, decodeURIComponent(transcript[1]));
   throw notFound();
 }
 
@@ -127,11 +132,41 @@ async function enqueueJobs(request: Request, env: Env): Promise<Response> {
   return json({ enqueued, existing });
 }
 
-/** `GET /ops/jobs/<video_id>`. */
+/** `GET /ops/jobs/<video_id>`, after the expiry sweep (8.6). */
 async function readJob(env: Env, videoId: string): Promise<Response> {
+  await sweepExpired(env);
   const job = await getJob(env, videoId);
   if (job === null) throw new HttpError(404, "not_found", "no such job");
   return json(job);
+}
+
+/**
+ * `DELETE /ops/nodes/<node_id>` (8.8), one D1 batch: the node becomes `disabled` (its first
+ * `revoked_at` kept), each of its `active` leases `revoked`, and each job it holds goes through
+ * the failure handling. Revoking again answers the same and changes nothing.
+ */
+async function revokeNode(env: Env, nodeId: string): Promise<Response> {
+  const now = new Date().toISOString();
+  const [revoked, leases] = await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE nodes SET state = 'disabled', state_since = CASE WHEN state = 'disabled' THEN state_since ELSE ?2 END,
+         revoked_at = COALESCE(revoked_at, ?2)
+       WHERE node_id = ?1 RETURNING node_id`,
+    ).bind(nodeId, now),
+    env.DB.prepare("UPDATE leases SET state = 'revoked' WHERE node_id = ?1 AND state = 'active'").bind(nodeId),
+    env.DB.prepare(`UPDATE jobs SET ${failureSet(now, "lease_revoked")} WHERE status = 'leased' AND leased_by = ?1`).bind(nodeId),
+  ]);
+  if (revoked.results.length === 0) throw new HttpError(404, "not_found", "no such node");
+  log("node.revoked", { attrs: { node_id: nodeId, leases_revoked: leases.meta.changes } });
+  return json({ node_id: nodeId, state: "disabled" });
+}
+
+/** `GET /ops/transcripts/<video_id>`: the stored transcript result and its metadata (6.4). */
+async function readTranscript(env: Env, videoId: string): Promise<Response> {
+  const object = await env.TRANSCRIPTS.get(transcriptKey(videoId));
+  if (object === null) throw new HttpError(404, "not_found", "no such transcript");
+  const { node_id, lease_id, produced_at } = object.customMetadata ?? {};
+  return json({ video_id: videoId, transcript: await object.json(), node_id, lease_id, produced_at });
 }
 
 async function reset(env: Env): Promise<Response> {
