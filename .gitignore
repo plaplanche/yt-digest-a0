@@ -5,3 +5,7 @@ __pycache__/
 .ruff_cache/
 node_modules/
 ci-artifacts/
+.stack/
+.wrangler/
+playwright-report/
+test-results/
