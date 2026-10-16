@@ -72,3 +72,41 @@ export async function logIn(
   expect(client.searchParams.get("state")).toBe("e2e-state");
   return { code: client.searchParams.get("code") ?? "", verifier };
 }
+
+export interface Tokens {
+  access_token: string;
+  refresh_token: string;
+}
+
+/** Exchanges an authorization code at `POST /token`. */
+export async function exchangeCode(request: APIRequestContext, clientId: string, code: string, verifier: string): Promise<Tokens> {
+  const response = await request.post("/token", {
+    form: { grant_type: "authorization_code", code, redirect_uri: clientRedirect, client_id: clientId, code_verifier: verifier, resource },
+  });
+  expect(response.status()).toBe(200);
+  return (await response.json()) as Tokens;
+}
+
+/** Posts one JSON-RPC message to `/mcp` (section 11), with `token` as the bearer when given. */
+export function postMcp(
+  request: APIRequestContext,
+  token: string | null,
+  message: Record<string, unknown>,
+  headers: Record<string, string> = {},
+): Promise<APIResponse> {
+  return request.post("/mcp", {
+    headers: {
+      Accept: "application/json, text/event-stream",
+      ...(token === null ? {} : { Authorization: `Bearer ${token}` }),
+      ...headers,
+    },
+    data: { jsonrpc: "2.0", ...message },
+  });
+}
+
+/** Checks the 401 `invalid_token` answer of `/mcp`, whose `WWW-Authenticate` points to the protected resource metadata. */
+export async function expectInvalidToken(response: APIResponse): Promise<void> {
+  expect(response.status()).toBe(401);
+  expect(response.headers()["www-authenticate"]).toContain(`resource_metadata="${workerUrl}/.well-known/oauth-protected-resource"`);
+  expect(await response.json()).toMatchObject({ error: "invalid_token" });
+}

@@ -1,9 +1,9 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { reset } from "./nodes";
-import { clientRedirect, logIn, registerClient, resource } from "./oauth";
+import { clientRedirect, expectInvalidToken, logIn, postMcp, registerClient, resource } from "./oauth";
 
 // E2E-31 of spec/lot-2.md section 13: refresh rotation, and the reuse of an old refresh token revoking
-// the family (shown at /token, since /mcp comes later).
+// the family (shown at /token and /mcp).
 
 interface Tokens {
   access_token: string;
@@ -37,6 +37,7 @@ test("E2E-31: refresh rotates the tokens; reusing an old refresh token revokes t
   const second = rotated.body as Tokens;
   expect(second.access_token).not.toBe(first.access_token);
   expect(second.refresh_token).not.toBe(first.refresh_token);
+  expect((await postMcp(request, first.access_token, { id: 1, method: "ping" })).status()).toBe(200);
 
   expect(await refresh(request, clientId, first.refresh_token)).toEqual({
     status: 400,
@@ -46,5 +47,6 @@ test("E2E-31: refresh rotates the tokens; reusing an old refresh token revokes t
     status: 400,
     body: expect.objectContaining({ error: "invalid_grant" }),
   });
+  await expectInvalidToken(await postMcp(request, first.access_token, { id: 1, method: "ping" }));
+  await expectInvalidToken(await postMcp(request, second.access_token, { id: 1, method: "ping" }));
 });
-
