@@ -75,19 +75,25 @@ def clean_line(line: str) -> str:
     return WHITESPACE.sub(" ", line).strip()
 
 
+def in_a_segment(time: float, segments: Sequence[tuple[float, float]]) -> bool:
+    """Whether `time` lies in a segment, start inclusive and end exclusive (step 2)."""
+    return any(start <= time < end for start, end in segments)
+
+
 def paragraphs(
     cues: Sequence[Cue], segments: Sequence[tuple[float, float]]
 ) -> list[str]:
     """Returns the paragraphs of clean text of the cues (steps 2 to 5).
 
-    `segments` are the SponsorBlock segments (start, end) in seconds. Step 2 (sponsor
-    cuts) is not applied yet: it comes with the SponsorBlock work, and `segments` is
-    empty until then. A cue is kept when at least one of its lines is kept.
+    `segments` are the SponsorBlock segments (start, end) in seconds. A cue is kept
+    when at least one of its lines is kept.
     """
     result: list[list[str]] = []
     previous_line: str | None = None
     previous_end_ms: int | None = None
     for cue in cues:
+        if in_a_segment((cue.start + cue.end) / 2, segments):
+            continue
         kept: list[str] = []
         for raw in cue.lines:
             line = clean_line(raw)

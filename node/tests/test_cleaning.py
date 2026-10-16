@@ -121,3 +121,32 @@ def test_gap_threshold_is_exact_despite_float_rounding() -> None:
 
 def test_no_cues_gives_no_paragraph() -> None:
     assert paragraphs([], []) == []
+
+
+# Step 2: sponsor cuts by the cue midpoint.
+
+
+def test_a_cue_whose_midpoint_is_a_segment_start_is_dropped() -> None:
+    cues = [Cue(9.0, 11.0, ("a",)), Cue(11.0, 12.0, ("b",))]
+    assert paragraphs(cues, [(10.0, 20.0)]) == []
+
+
+def test_a_cue_whose_midpoint_is_a_segment_end_is_kept() -> None:
+    cues = [Cue(9.0, 10.0, ("a",)), Cue(19.0, 21.0, ("b",))]
+    assert paragraphs(cues, [(10.0, 20.0)]) == ["a", "b"]
+
+
+def test_a_cue_overlapping_a_segment_with_its_midpoint_outside_is_kept() -> None:
+    cues = [Cue(8.0, 11.0, ("a",)), Cue(11.0, 13.0, ("b",))]
+    assert paragraphs(cues, [(10.0, 12.5)]) == ["a"]
+
+
+def test_a_dropped_cue_does_not_count_as_the_previous_kept_line() -> None:
+    cues = [Cue(0.0, 1.0, ("a",)), Cue(1.0, 2.0, ("b",)), Cue(2.0, 3.0, ("a",))]
+    assert paragraphs(cues, []) == ["a b a"]
+    assert paragraphs(cues, [(1.0, 2.0)]) == ["a"]
+
+
+def test_the_gap_is_measured_over_a_dropped_cue() -> None:
+    cues = [Cue(0.0, 1.0, ("a",)), Cue(1.0, 3.0, ("b",)), Cue(3.0, 4.0, ("c",))]
+    assert paragraphs(cues, [(1.5, 2.5)]) == ["a", "c"]
