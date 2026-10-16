@@ -34,6 +34,9 @@ export async function handleOps(request: Request, env: Env, path: string): Promi
   if (request.method === "POST" && path === "/ops/reset") return reset(env);
   if (request.method === "POST" && path === "/ops/nodes") return enrollNode(request, env);
   if (request.method === "POST" && path === "/ops/jobs") return enqueueJobs(request, env);
+  if (request.method === "POST" && path === "/ops/invites") return invite(request, env);
+  if (request.method === "POST" && path === "/ops/invites/revoke") return revokeInvite(request, env);
+  if (request.method === "GET" && path === "/ops/users") return listUsers(env);
   const job = /^\/ops\/jobs\/([^/]+)$/.exec(path);
   if (request.method === "GET" && job) return readJob(env, decodeURIComponent(job[1]));
   const node = /^\/ops\/nodes\/([^/]+)$/.exec(path);
@@ -130,6 +133,47 @@ async function enqueueJobs(request: Request, env: Env): Promise<Response> {
   });
   log("job.enqueued", { attrs: { count: enqueued.length, priority } });
   return json({ enqueued, existing });
+}
+
+/** The lowercased `email` of an invite body, a string (containing `@` for a new invite). */
+function parseInviteEmail(value: unknown): string {
+  if (!isRecord(value)) throw new Error("expected an object");
+  onlyKeys(value, ["email"]);
+  const { email } = value;
+  if (typeof email !== "string") throw new Error("email must be a string");
+  return email.toLowerCase();
+}
+
+function parseNewInvite(value: unknown): string {
+  const email = parseInviteEmail(value);
+  if (!email.includes("@")) throw new Error("email must contain @");
+  return email;
+}
+
+/** `POST /ops/invites`: stores the invite, or re-activates it when it exists (its `invited_at` kept). */
+async function invite(request: Request, env: Env): Promise<Response> {
+  const email = await readBody(request, parseNewInvite);
+  await env.DB.prepare(
+    `INSERT INTO invites (email, invited_at, revoked) VALUES (?1, ?2, 0)
+     ON CONFLICT (email) DO UPDATE SET revoked = 0`,
+  )
+    .bind(email, new Date().toISOString())
+    .run();
+  return json({ email, revoked: false });
+}
+
+/** `POST /ops/invites/revoke`: revoking again answers the same; an unknown invite gives 404. */
+async function revokeInvite(request: Request, env: Env): Promise<Response> {
+  const email = await readBody(request, parseInviteEmail);
+  const row = await env.DB.prepare("UPDATE invites SET revoked = 1 WHERE email = ?1 RETURNING email").bind(email).first();
+  if (row === null) throw new HttpError(404, "not_found", "no such invite");
+  return json({ email, revoked: true });
+}
+
+/** `GET /ops/users`, sorted by e-mail. */
+async function listUsers(env: Env): Promise<Response> {
+  const { results } = await env.DB.prepare("SELECT user_sub, email, role FROM users ORDER BY email, user_sub").all();
+  return json({ users: results });
 }
 
 /** `GET /ops/jobs/<video_id>`, after the expiry sweep (8.6). */
