@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yt-digest/contracts/log-event.schema.json",
+  "title": "LogEvent",
+  "description": "One log line, written as one JSON object per line.",
+  "type": "object",
+  "properties": {
+    "ts": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+    },
+    "level": {
+      "enum": ["debug", "info", "warn", "error"]
+    },
+    "service": {
+      "enum": ["node", "worker"]
+    },
+    "event": {
+      "title": "LogEventName",
+      "description": "The catalogue of log events.",
+      "enum": ["service.started", "fetch.transcript", "sponsorblock.call"]
+    },
+    "request_id": {
+      "type": "string"
+    },
+    "video_id": {
+      "type": "string"
+    },
+    "attrs": {
+      "type": "object"
+    }
+  },
+  "required": ["ts", "level", "service", "event", "attrs"],
+  "additionalProperties": false
+}

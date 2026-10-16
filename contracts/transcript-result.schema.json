@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yt-digest/contracts/transcript-result.schema.json",
+  "title": "TranscriptResult",
+  "description": "The output of the transcript pipeline and the payload the node sends to the Worker.",
+  "type": "object",
+  "properties": {
+    "video_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{11}$"
+    },
+    "status": {
+      "enum": ["ok", "no_transcript", "unavailable", "blocked"]
+    },
+    "lang": {
+      "type": ["string", "null"]
+    },
+    "source": {
+      "enum": ["manual", "auto", null]
+    },
+    "word_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "sponsor_ratio": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "pages": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": ["video_id", "status", "lang", "source", "word_count", "truncated", "sponsor_ratio", "pages"],
+  "additionalProperties": false
+}
