@@ -7,7 +7,12 @@ Reads every contracts/*.schema.json of the repository and writes Pydantic v2 mod
 scripts/contracts.sh, which formats the Python output and moves or compares it.
 
 Only the subset of JSON Schema used by the contracts is supported; anything else is an
-error, so that a schema never says more than the generated code enforces.
+error, so that a schema never says more than the generated code enforces. An object
+with `properties` (the root, or a field or array item) needs a PascalCase `title` and
+`additionalProperties: false`, and becomes a named type. A field may refer to the root
+of another schema of contracts/ with `{"$ref": "<file>"}`, or, when it may be null,
+with `{"anyOf": [{"$ref": "<file>"}, {"type": "null"}]}`; the generated code then
+imports the type generated for that file instead of defining it again.
 """
 
 import json
@@ -28,15 +33,20 @@ ROOT_KEYS = {
     "required",
     "additionalProperties",
 }
+OBJECT_KEYS = ROOT_KEYS - {"$schema", "$id"}
 FIELD_KEYS = {
     "title",
     "description",
     "type",
     "enum",
     "pattern",
+    "minLength",
+    "maxLength",
     "minimum",
     "maximum",
     "items",
+    "$ref",
+    "anyOf",
 }
 TYPES = {"string", "integer", "number", "boolean", "array", "object"}
 
@@ -46,62 +56,161 @@ class SchemaError(Exception):
 
 
 @dataclass
+class Ref:
+    """A field that holds the root type of another schema file."""
+
+    file: str
+    title: str
+    nullable: bool
+
+    @property
+    def stem(self) -> str:
+        return self.file.removesuffix(".schema.json")
+
+
+@dataclass
 class Field:
-    """One property of a schema, normalised."""
+    """One property of an object, normalised."""
 
     name: str
     schema: dict[str, Any]
     required: bool
+    ref: Ref | None
 
 
 @dataclass
-class Contract:
-    """One schema file, normalised."""
+class Model:
+    """One object with properties: the root of a schema or a nested object."""
 
-    source: str
-    stem: str
     title: str
     description: str
     fields: list[Field]
 
 
-def load(path: Path) -> Contract:
+@dataclass
+class Contract:
+    """One schema file, normalised; its root model is the last of `models`."""
+
+    source: str
+    stem: str
+    models: list[Model]
+    refs: list[Ref]
+
+    @property
+    def root(self) -> Model:
+        return self.models[-1]
+
+
+def is_title(value: object) -> bool:
+    return (
+        isinstance(value, str) and re.fullmatch(r"[A-Z][A-Za-z0-9]*", value) is not None
+    )
+
+
+def root_title(path: Path) -> str:
+    title = json.loads(path.read_text()).get("title")
+    if not is_title(title):
+        raise SchemaError(f"{path.name}: the root needs a PascalCase title")
+    return str(title)
+
+
+def load(path: Path, titles: dict[str, str]) -> Contract:
+    """Reads one schema; `titles` maps every file of contracts/ to its root title."""
     schema = json.loads(path.read_text())
-    where = path.name
-    unknown = set(schema) - ROOT_KEYS
+    models: list[Model] = []
+    refs: list[Ref] = []
+    parse_object(path.name, schema, ROOT_KEYS, titles, models, refs)
+    if any(ref.file == path.name for ref in refs):
+        raise SchemaError(f"{path.name}: a schema cannot refer to itself")
+    return Contract(
+        source=f"contracts/{path.name}",
+        stem=path.name.removesuffix(".schema.json"),
+        models=models,
+        refs=refs,
+    )
+
+
+def parse_object(
+    where: str,
+    schema: dict[str, Any],
+    keys: set[str],
+    titles: dict[str, str],
+    models: list[Model],
+    refs: list[Ref],
+) -> None:
+    """Checks an object with properties and appends its model after its nested ones."""
+    unknown = set(schema) - keys
     if unknown:
         raise SchemaError(f"{where}: unsupported keywords {sorted(unknown)}")
     if (
         schema.get("type") != "object"
         or schema.get("additionalProperties") is not False
     ):
-        raise SchemaError(f"{where}: the root must be an object with no other field")
+        raise SchemaError(f"{where}: an object must allow no other field")
     title = schema.get("title")
-    if not isinstance(title, str) or not re.fullmatch(r"[A-Z][A-Za-z0-9]*", title):
-        raise SchemaError(f"{where}: the root needs a PascalCase title")
+    if not is_title(title):
+        raise SchemaError(f"{where}: an object needs a PascalCase title")
     required = schema.get("required", [])
-    properties: dict[str, Any] = schema["properties"]
+    properties: dict[str, Any] = schema.get("properties", {})
     if set(required) - set(properties):
         raise SchemaError(f"{where}: required names an unknown property")
     fields = []
     for name, field_schema in properties.items():
         if not re.fullmatch(r"[a-z][a-z0-9_]*", name):
             raise SchemaError(f"{where}: property {name!r} is not snake_case")
-        check_field(f"{where}: {name}", field_schema, top=True)
-        fields.append(Field(name, field_schema, name in required))
-    return Contract(
-        source=f"contracts/{path.name}",
-        stem=path.name.removesuffix(".schema.json"),
-        title=title,
-        description=schema.get("description", title),
-        fields=fields,
-    )
+        inner = f"{where}: {name}"
+        ref = check_field(inner, field_schema, True, titles, models, refs)
+        fields.append(Field(name, field_schema, name in required, ref))
+    models.append(Model(title, schema.get("description", title), fields))
 
 
-def check_field(where: str, schema: dict[str, Any], top: bool) -> None:
+def parse_ref(where: str, schema: dict[str, Any], titles: dict[str, str]) -> Ref:
+    nullable = "anyOf" in schema
+    target = schema
+    if nullable:
+        options = schema["anyOf"]
+        if (
+            set(schema) - {"description", "anyOf"}
+            or not isinstance(options, list)
+            or len(options) != 2
+            or not isinstance(options[0], dict)
+            or options[1] != {"type": "null"}
+        ):
+            raise SchemaError(
+                f'{where}: anyOf is only [{{"$ref": "<file>"}}, {{"type": "null"}}]'
+            )
+        target = options[0]
+    if set(target) - {"$ref", "description"} or "$ref" not in target:
+        raise SchemaError(f"{where}: a $ref takes no other keyword")
+    file = target["$ref"]
+    if file not in titles:
+        raise SchemaError(f"{where}: $ref names no schema file of contracts/")
+    return Ref(file, titles[file], nullable)
+
+
+def check_field(
+    where: str,
+    schema: dict[str, Any],
+    top: bool,
+    titles: dict[str, str],
+    models: list[Model],
+    refs: list[Ref],
+) -> Ref | None:
+    """Checks a field or array item; returns the reference a field makes, if any."""
+    if not isinstance(schema, dict):
+        raise SchemaError(f"{where}: expected a schema object")
+    if "properties" in schema:
+        parse_object(where, schema, OBJECT_KEYS, titles, models, refs)
+        return None
     unknown = set(schema) - FIELD_KEYS
     if unknown:
         raise SchemaError(f"{where}: unsupported keywords {sorted(unknown)}")
+    if "$ref" in schema or "anyOf" in schema:
+        if not top:
+            raise SchemaError(f"{where}: only a property takes a $ref")
+        ref = parse_ref(where, schema, titles)
+        refs.append(ref)
+        return ref
     if "enum" in schema:
         if set(schema) - {"title", "description", "enum"}:
             raise SchemaError(f"{where}: an enum takes no other keyword")
@@ -111,14 +220,14 @@ def check_field(where: str, schema: dict[str, Any], top: bool) -> None:
         if "title" in schema:
             if not top or None in values:
                 raise SchemaError(f"{where}: a titled enum is top level and not null")
-            if not re.fullmatch(r"[A-Z][A-Za-z0-9]*", schema["title"]):
+            if not is_title(schema["title"]):
                 raise SchemaError(f"{where}: the title is not PascalCase")
-        return
+        return None
     if "title" in schema:
-        raise SchemaError(f"{where}: only enums take a title")
+        raise SchemaError(f"{where}: only enums and objects take a title")
     base, _ = base_type(where, schema)
     allowed = {
-        "string": {"pattern"},
+        "string": {"pattern", "minLength", "maxLength"},
         "integer": {"minimum", "maximum"},
         "number": {"minimum", "maximum"},
         "boolean": set(),
@@ -131,7 +240,11 @@ def check_field(where: str, schema: dict[str, Any], top: bool) -> None:
         items = schema.get("items")
         if not isinstance(items, dict):
             raise SchemaError(f"{where}: an array needs items")
-        check_field(f"{where}[]", items, top=False)
+        check_field(f"{where}[]", items, False, titles, models, refs)
+    for key in ("minLength", "maxLength"):
+        if key in schema and (not isinstance(schema[key], int) or schema[key] < 0):
+            raise SchemaError(f"{where}: {key} is not a natural number")
+    return None
 
 
 def base_type(where: str, schema: dict[str, Any]) -> tuple[str, bool]:
@@ -159,6 +272,15 @@ def header(contract: Contract) -> str:
     return f"Generated by scripts/contracts.sh from {contract.source}: do not edit."
 
 
+def is_object(schema: dict[str, Any]) -> bool:
+    """Whether a schema is an object with properties, generated as a named type."""
+    return "properties" in schema
+
+
+def field_nullable(field: Field) -> bool:
+    return field.ref.nullable if field.ref else nullable(field.schema)
+
+
 # Python
 
 
@@ -169,6 +291,8 @@ def py_type(schema: dict[str, Any]) -> str:
         values = [v for v in schema["enum"] if v is not None]
         text = f"Literal[{', '.join(literal(v) for v in values)}]"
         return f"{text} | None" if None in schema["enum"] else text
+    if is_object(schema):
+        return str(schema["title"])
     base, nullable = base_type("", schema)
     if base == "array":
         text = f"list[{py_type(schema['items'])}]"
@@ -178,6 +302,10 @@ def py_type(schema: dict[str, Any]) -> str:
         args = ["strict=True"]
         if "pattern" in schema:
             args.append(f"pattern={literal(schema['pattern'])}")
+        if "minLength" in schema:
+            args.append(f"min_length={literal(schema['minLength'])}")
+        if "maxLength" in schema:
+            args.append(f"max_length={literal(schema['maxLength'])}")
         if "minimum" in schema:
             args.append(f"ge={literal(schema['minimum'])}")
         if "maximum" in schema:
@@ -192,46 +320,32 @@ def py_type(schema: dict[str, Any]) -> str:
     return f"{text} | None" if nullable else text
 
 
+def py_field_type(field: Field) -> str:
+    if field.ref:
+        return f"{field.ref.title} | None" if field.ref.nullable else field.ref.title
+    return py_type(field.schema)
+
+
 def nullable(schema: dict[str, Any]) -> bool:
     if "enum" in schema:
         return None in schema["enum"]
     return base_type("", schema)[1]
 
 
-def python(contract: Contract) -> str:
-    enums = [f.schema for f in contract.fields if "title" in f.schema]
-    body = [py_type(f.schema) for f in contract.fields]
+def py_model(model: Model) -> list[str]:
     # An optional property that is not nullable is absent or valid, never null.
     not_null = [
-        f.name for f in contract.fields if not f.required and not nullable(f.schema)
+        f.name for f in model.fields if not f.required and not field_nullable(f)
     ]
-    imports = []
-    if enums:
-        imports.append("from enum import StrEnum")
-    typing = [name for name in ("Annotated", "Literal") if any(name in t for t in body)]
-    if typing:
-        imports.append(f"from typing import {', '.join(typing)}")
-    pydantic = ["BaseModel", "ConfigDict"]
-    if any("Field(" in t for t in body):
-        pydantic.append("Field")
-    if not_null:
-        pydantic.append("field_validator")
-    lines = [f"# {header(contract)}", f'"""{contract.description}"""', ""]
-    lines += [*imports, "", f"from pydantic import {', '.join(pydantic)}", "", ""]
-    for enum in enums:
-        lines.append(f"class {enum['title']}(StrEnum):")
-        lines += [f'    """{enum.get("description", enum["title"])}"""', ""]
-        for value in enum["enum"]:
-            lines.append(f"    {upper_snake(value)} = {literal(value)}")
-        lines += ["", ""]
-    lines.append(f"class {contract.title}(BaseModel):")
-    lines += [f'    """{contract.description}"""', ""]
+    lines = [f"class {model.title}(BaseModel):"]
+    lines += [f'    """{model.description}"""', ""]
     lines += ['    model_config = ConfigDict(extra="forbid")', ""]
-    for field, annotation in zip(contract.fields, body, strict=True):
+    for field in model.fields:
+        annotation = py_field_type(field)
         if field.required:
             lines.append(f"    {field.name}: {annotation}")
         else:
-            optional = annotation if nullable(field.schema) else f"{annotation} | None"
+            optional = annotation if field_nullable(field) else f"{annotation} | None"
             lines.append(f"    {field.name}: {optional} = None")
     if not_null:
         names = ", ".join(literal(n) for n in not_null)
@@ -244,6 +358,39 @@ def python(contract: Contract) -> str:
             '            raise ValueError("may be absent but not null")',
             "        return value",
         ]
+    return lines
+
+
+def python(contract: Contract) -> str:
+    fields = [f for model in contract.models for f in model.fields]
+    enums = [f.schema for f in fields if "title" in f.schema and "enum" in f.schema]
+    body = [py_field_type(f) for f in fields]
+    imports = []
+    if enums:
+        imports.append("from enum import StrEnum")
+    typing = [name for name in ("Annotated", "Literal") if any(name in t for t in body)]
+    if typing:
+        imports.append(f"from typing import {', '.join(typing)}")
+    pydantic = ["BaseModel", "ConfigDict"]
+    if any("Field(" in t for t in body):
+        pydantic.append("Field")
+    if any(not f.required and not field_nullable(f) for f in fields):
+        pydantic.append("field_validator")
+    lines = [f"# {header(contract)}", f'"""{contract.root.description}"""', ""]
+    lines += [*imports, "", f"from pydantic import {', '.join(pydantic)}", ""]
+    for ref in sorted({(r.stem, r.title) for r in contract.refs}):
+        lines.append(f"from .{ref[0].replace('-', '_')} import {ref[1]}")
+    lines += ["", ""]
+    for enum in enums:
+        lines.append(f"class {enum['title']}(StrEnum):")
+        lines += [f'    """{enum.get("description", enum["title"])}"""', ""]
+        for value in enum["enum"]:
+            lines.append(f"    {upper_snake(value)} = {literal(value)}")
+        lines += ["", ""]
+    for index, model in enumerate(contract.models):
+        if index:
+            lines += ["", ""]
+        lines += py_model(model)
     return "\n".join(lines) + "\n"
 
 
@@ -255,6 +402,8 @@ def ts_type(schema: dict[str, Any]) -> str:
         if "title" in schema:
             return str(schema["title"])
         return " | ".join(literal(v) for v in schema["enum"])
+    if is_object(schema):
+        return str(schema["title"])
     base, nullable = base_type("", schema)
     if base == "array":
         item = ts_type(schema["items"])
@@ -267,6 +416,12 @@ def ts_type(schema: dict[str, Any]) -> str:
     return f"{text} | null" if nullable else text
 
 
+def ts_field_type(field: Field) -> str:
+    if field.ref:
+        return f"{field.ref.title} | null" if field.ref.nullable else field.ref.title
+    return ts_type(field.schema)
+
+
 def ts_check(schema: dict[str, Any], var: str) -> str:
     """A TypeScript boolean expression: `var` (of type unknown) matches `schema`."""
     if "enum" in schema:
@@ -275,6 +430,8 @@ def ts_check(schema: dict[str, Any], var: str) -> str:
         else:
             values = "[" + ", ".join(literal(v) for v in schema["enum"]) + "]"
         return f"({values} as readonly unknown[]).includes({var})"
+    if is_object(schema):
+        return f"check{schema['title']}({var}) === null"
     base, nullable = base_type("", schema)
     checks: list[str] = []
     if base == "string":
@@ -282,6 +439,11 @@ def ts_check(schema: dict[str, Any], var: str) -> str:
         if "pattern" in schema:
             regex = schema["pattern"].replace("/", "\\/")
             checks.append(f"/{regex}/.test({var})")
+        # JSON Schema counts characters (code points), not UTF-16 units.
+        if "minLength" in schema:
+            checks.append(f"[...{var}].length >= {literal(schema['minLength'])}")
+        if "maxLength" in schema:
+            checks.append(f"[...{var}].length <= {literal(schema['maxLength'])}")
     elif base in ("integer", "number"):
         checks.append(f'typeof {var} === "number"')
         checks.append(
@@ -307,67 +469,109 @@ def ts_check(schema: dict[str, Any], var: str) -> str:
     return f"{var} === null || ({text})" if nullable else text
 
 
-def typescript(contract: Contract) -> str:
-    fields = upper_snake(contract.title) + "_FIELDS"
-    lines = [f"// {header(contract)}", ""]
-    for field in contract.fields:
-        enum = field.schema
-        if "title" in enum:
-            values = ", ".join(literal(v) for v in enum["enum"])
-            doc = f"/** {enum.get('description', enum['title'])} */"
-            lines.append(doc)
-            lines.append(
-                f"export const {upper_snake(enum['title'])}S = [{values}] as const;"
-            )
-            lines.append(doc)
-            name = upper_snake(enum["title"]) + "S"
-            lines += [f"export type {enum['title']} = (typeof {name})[number];", ""]
-    lines += [f"/** {contract.description} */", f"export interface {contract.title} {{"]
-    for field in contract.fields:
+def ts_field_check(field: Field) -> str:
+    if field.ref:
+        check = f"check{field.ref.title}(value) === null"
+        return f"value === null || {check}" if field.ref.nullable else check
+    return ts_check(field.schema, "value")
+
+
+def ts_model(model: Model) -> list[str]:
+    title = model.title
+    fields = upper_snake(title) + "_FIELDS"
+    lines = [f"/** {model.description} */", f"export interface {title} {{"]
+    for field in model.fields:
         mark = "" if field.required else "?"
-        lines.append(f"  {field.name}{mark}: {ts_type(field.schema)};")
+        lines.append(f"  {field.name}{mark}: {ts_field_type(field)};")
     lines += ["}", ""]
     lines.append(
         f"const {fields}: Record<string, {{ required: boolean; "
         "check: (value: unknown) => boolean }> = {"
     )
-    for field in contract.fields:
-        check = ts_check(field.schema, "value")
+    for field in model.fields:
         required = "true" if field.required else "false"
         lines.append(
-            f"  {field.name}: {{ required: {required}, check: (value) => {check} }},"
+            f"  {field.name}: {{ required: {required}, "
+            f"check: (value) => {ts_field_check(field)} }},"
         )
     lines += [
         "};",
         "",
-        f"/** Checks a value against {contract.source}; throws on a violation. */",
-        f"export function parse{contract.title}(value: unknown): {contract.title} {{",
+        f"/** Returns why a value is not a {title}, or null when it is one. */",
+        f"export function check{title}(value: unknown): string | null {{",
         '  if (typeof value !== "object" || value === null || Array.isArray(value)) {',
-        f'    throw new Error("{contract.title}: expected an object");',
+        f'    return "{title}: expected an object";',
         "  }",
         "  const record = value as Record<string, unknown>;",
         "  for (const key of Object.keys(record)) {",
         f"    if (!Object.hasOwn({fields}, key)) {{",
-        f"      throw new Error(`{contract.title}: unknown field ${{key}}`);",
+        f"      return `{title}: unknown field ${{key}}`;",
         "    }",
         "  }",
         f"  for (const [key, field] of Object.entries({fields})) {{",
         "    if (!Object.hasOwn(record, key)) {",
         "      if (field.required) {",
-        f"        throw new Error(`{contract.title}: missing field ${{key}}`);",
+        f"        return `{title}: missing field ${{key}}`;",
         "      }",
         "    } else if (!field.check(record[key])) {",
-        f"      throw new Error(`{contract.title}: invalid field ${{key}}`);",
+        f"      return `{title}: invalid field ${{key}}`;",
         "    }",
         "  }",
-        f"  return value as {contract.title};",
+        "  return null;",
+        "}",
+    ]
+    return lines
+
+
+def typescript(contract: Contract) -> str:
+    root = contract.root.title
+    lines = [f"// {header(contract)}", ""]
+    refs = sorted({(r.stem, r.title) for r in contract.refs})
+    for stem, title in refs:
+        lines.append(f'import {{ check{title}, type {title} }} from "./{stem}";')
+    if refs:
+        lines.append("")
+    for model in contract.models:
+        for field in model.fields:
+            enum = field.schema
+            if "title" in enum and "enum" in enum:
+                values = ", ".join(literal(v) for v in enum["enum"])
+                doc = f"/** {enum.get('description', enum['title'])} */"
+                name = upper_snake(enum["title"]) + "S"
+                lines.append(doc)
+                lines.append(f"export const {name} = [{values}] as const;")
+                lines.append(doc)
+                lines += [f"export type {enum['title']} = (typeof {name})[number];", ""]
+    for model in contract.models:
+        lines += [*ts_model(model), ""]
+    lines += [
+        f"/** Checks a value against {contract.source}; throws on a violation. */",
+        f"export function parse{root}(value: unknown): {root} {{",
+        f"  const error = check{root}(value);",
+        "  if (error !== null) {",
+        "    throw new Error(error);",
+        "  }",
+        f"  return value as {root};",
         "}",
     ]
     return "\n".join(lines) + "\n"
 
 
 def main(out: Path) -> None:
-    contracts = [load(p) for p in sorted((ROOT / "contracts").glob("*.schema.json"))]
+    paths = sorted((ROOT / "contracts").glob("*.schema.json"))
+    titles = {path.name: root_title(path) for path in paths}
+    contracts = [load(path, titles) for path in paths]
+    names = [m.title for c in contracts for m in c.models]
+    names += [
+        str(f.schema["title"])
+        for c in contracts
+        for m in c.models
+        for f in m.fields
+        if "enum" in f.schema and "title" in f.schema
+    ]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise SchemaError(f"titles used more than once: {duplicates}")
     py, ts = out / "py", out / "ts"
     py.mkdir(parents=True)
     ts.mkdir(parents=True)

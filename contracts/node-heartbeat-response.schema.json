@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yt-digest/contracts/node-heartbeat-response.schema.json",
+  "title": "NodeHeartbeatResponse",
+  "description": "The response of POST /node/heartbeat.",
+  "type": "object",
+  "properties": {
+    "node_id": {
+      "type": "string"
+    },
+    "state": {
+      "enum": ["healthy", "degraded", "quarantined", "offline", "disabled"]
+    },
+    "hourly_budget": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "directive": {
+      "enum": ["run", "pause", "drain"]
+    }
+  },
+  "required": ["node_id", "state", "hourly_budget", "directive"],
+  "additionalProperties": false
+}

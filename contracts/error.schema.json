@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yt-digest/contracts/error.schema.json",
+  "title": "ErrorResponse",
+  "description": "The body of every error response of /node/*, /ops/* and the Origin check of /mcp.",
+  "type": "object",
+  "properties": {
+    "error": {
+      "title": "ErrorDetail",
+      "description": "The error: a code fixed by the spec and a free text message.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": ["code", "message"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["error"],
+  "additionalProperties": false
+}

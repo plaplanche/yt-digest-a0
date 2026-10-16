@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yt-digest/contracts/node-release-request.schema.json",
+  "title": "NodeReleaseRequest",
+  "description": "The body of POST /node/release: a job the node gives back.",
+  "type": "object",
+  "properties": {
+    "lease_id": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": ["lease_id"],
+  "additionalProperties": false
+}
