@@ -1,6 +1,7 @@
 import type { Env } from "./env";
 import { HttpError, json, notFound } from "./http";
 import { handleNode } from "./node";
+import { handleOAuth } from "./oauth";
 import { handleOps } from "./ops";
 import { VERSION } from "./version";
 
@@ -11,6 +12,8 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (path === "/health" && request.method === "GET") return json({ status: "ok", version: VERSION });
   if (path.startsWith("/ops/")) return handleOps(request, env, path);
   if (path.startsWith("/node/")) return handleNode(request, env, path);
+  const oauth = await handleOAuth(request, env, path);
+  if (oauth !== null) return oauth;
   throw notFound();
 }
 
