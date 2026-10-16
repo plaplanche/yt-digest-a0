@@ -1,0 +1,19 @@
+[project]
+name = "yt-digest-node"
+version = "0.1.0"
+description = "yt-digest node: the transcript pipeline"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[dependency-groups]
+dev = ["mypy", "pytest", "ruff"]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
