@@ -1,0 +1,6 @@
+[
+  {"name": "lint", "run": "./scripts/check.sh lint"},
+  {"name": "contracts", "run": "./scripts/check.sh contracts"},
+  {"name": "test-node", "run": "./scripts/check.sh test-node"},
+  {"name": "test-worker", "run": "./scripts/check.sh test-worker"}
+]
