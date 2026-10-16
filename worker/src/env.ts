@@ -24,6 +24,8 @@ export interface Env {
   ADMIN_EMAIL: string;
   /** Base64 of the 32-byte AES-GCM key that encrypts Google refresh tokens. */
   TOKEN_ENC_KEY: string;
+  /** Comma-separated origins accepted on `/mcp` besides the origin of `PUBLIC_URL` (section 11.2). */
+  ALLOWED_ORIGINS?: string;
 }
 
 /** A setting as a positive integer, `fallback` when absent, empty or not a positive integer. */
