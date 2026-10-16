@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { expect, type APIRequestContext } from "@playwright/test";
+import { expect, type APIRequestContext, type APIResponse } from "@playwright/test";
 
 // Helpers of the OAuth tests (spec/lot-2.md section 10).
 
@@ -37,4 +37,38 @@ export function authorizePath(clientId: string, changes: Record<string, string |
   const search = new URLSearchParams();
   for (const [name, value] of Object.entries(params)) if (value !== null) search.set(name, value);
   return `/authorize?${search.toString()}`;
+}
+
+/** The `Location` of a 302 answer. */
+function redirectOf(response: APIResponse): URL {
+  expect(response.status()).toBe(302);
+  return new URL(response.headers()["location"]);
+}
+
+/**
+ * Logs `email` in over HTTP: the consent form approved, then the fake Google's sign-in skipped with
+ * `login_hint`. Returns the client's authorization code and its PKCE verifier.
+ */
+export async function logIn(
+  request: APIRequestContext,
+  clientId: string,
+  email: string,
+): Promise<{ code: string; verifier: string }> {
+  const { verifier, challenge } = pkce();
+  const consentPage = await request.get(authorizePath(clientId, { code_challenge: challenge }), { maxRedirects: 0 });
+  expect(consentPage.status()).toBe(200);
+  const requestId = /<input type="hidden" name="request" value="([^"]+)">/.exec(await consentPage.text())?.[1];
+  expect(requestId).toBeDefined();
+  const approved = await request.post("/authorize/consent", {
+    form: { request: requestId ?? "", decision: "approve" },
+    maxRedirects: 0,
+  });
+  const google = redirectOf(approved);
+  google.searchParams.set("login_hint", email);
+  const callback = redirectOf(await request.get(google.href, { maxRedirects: 0 }));
+  expect(`${callback.origin}${callback.pathname}`).toBe(`${workerUrl}/callback`);
+  const client = redirectOf(await request.get(callback.href, { maxRedirects: 0 }));
+  expect(`${client.origin}${client.pathname}`).toBe(clientRedirect);
+  expect(client.searchParams.get("state")).toBe("e2e-state");
+  return { code: client.searchParams.get("code") ?? "", verifier };
 }

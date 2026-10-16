@@ -8,6 +8,10 @@ export interface Env {
   LEASE_SECONDS?: string;
   /** The Worker's issuer and the base of its URLs (`WORKER_URL`), a trailing slash ignored. */
   PUBLIC_URL: string;
+  /** Lifetime of an OAuth access token in seconds; 3600 when absent. */
+  ACCESS_TOKEN_TTL_SECONDS?: string;
+  /** Lifetime of an OAuth refresh token in seconds, from its issue; 2592000 when absent. */
+  REFRESH_TOKEN_TTL_SECONDS?: string;
   /** Lifetime of an authorization code in seconds; 60 when absent. */
   AUTH_CODE_TTL_SECONDS?: string;
   /** Lifetime of a pending authorization in seconds; 600 when absent. */
@@ -31,6 +35,14 @@ function positiveInteger(value: string | undefined, fallback: number): number {
 /** `LEASE_SECONDS` as a number: 600 when absent, empty or not a positive integer. */
 export function leaseSeconds(env: Env): number {
   return positiveInteger(env.LEASE_SECONDS, 600);
+}
+
+export function accessTokenTtlSeconds(env: Env): number {
+  return positiveInteger(env.ACCESS_TOKEN_TTL_SECONDS, 3600);
+}
+
+export function refreshTokenTtlSeconds(env: Env): number {
+  return positiveInteger(env.REFRESH_TOKEN_TTL_SECONDS, 2592000);
 }
 
 export function authCodeTtlSeconds(env: Env): number {

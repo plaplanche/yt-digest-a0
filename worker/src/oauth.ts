@@ -6,9 +6,9 @@ import { json, notFound } from "./http";
 import { log } from "./log";
 
 // The first half of the OAuth flow for MCP clients (spec/lot-2.md sections 10.1 to 10.4): discovery,
-// registration, the consent page and the Google callback.
+// registration, the consent page and the Google callback. The second half is in token.ts.
 
-const SCOPE = "digest";
+export const SCOPE = "digest";
 const GOOGLE_SCOPE = "openid email https://www.googleapis.com/auth/youtube.readonly";
 
 /** The OAuth routes; null when the path is not one of them. */
@@ -41,7 +41,7 @@ export async function handleOAuth(request: Request, env: Env, path: string): Pro
   return null;
 }
 
-function oauthError(status: number, error: string, description: string): Response {
+export function oauthError(status: number, error: string, description: string): Response {
   return json({ error, error_description: description }, status);
 }
 
@@ -272,7 +272,7 @@ async function consent(request: Request, env: Env): Promise<Response> {
 // 10.4 GET /callback and access control
 
 /** The role of an e-mail under access control (section 10.4 step 4), or null when it is not admitted. */
-async function admittedRole(env: Env, email: string): Promise<"admin" | "member" | null> {
+export async function admittedRole(env: Env, email: string): Promise<"admin" | "member" | null> {
   if (email === env.ADMIN_EMAIL.toLowerCase()) return "admin";
   const invite = await env.DB.prepare("SELECT 1 FROM invites WHERE email = ?1 AND revoked = 0").bind(email).first();
   return invite === null ? null : "member";
