@@ -1,0 +1,36 @@
+WEBVTT - Manual track
+Kind: subtitles
+Language: en
+
+NOTE
+This note spans two lines
+and must not reach the text.
+
+STYLE
+::cue {
+  color: yellow;
+}
+
+REGION
+id:speaker
+width:40%
+
+1
+00:00:01.000 --> 00:00:03.500 region:speaker align:left
+<v Alice>Welcome to the show.</v>
+
+intro-2
+00:00:04.000 --> 00:00:06.000
+Today we talk about <i>rivers</i>
+and <b>lakes</b>.
+
+NOTE a one-line note
+
+00:00:07.900 --> 00:00:09.000 line:90%
+<u>This starts</u> after a 1.9 s gap.
+
+00:00:11.000 --> 00:00:12.500
+This starts after a 2.0 s gap.
+
+01:00:00.000 --> 01:00:01.250
+One hour in.

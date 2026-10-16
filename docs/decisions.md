@@ -16,3 +16,7 @@ Choices the spec leaves open, one dated line each.
 - 2026-10-16: `--check` names every stale, missing or extra generated file (ignoring `__pycache__`); its test runs it on a copy of the repository.
 - 2026-10-16: `emit` sets `ts` and `service`, defaults `attrs` to `{}`, raises `ValueError` when `ts` or `service` is given, and omits absent optional fields; `log(event, fields)` takes `level`, `request_id`, `video_id` and `attrs` and writes with `console.log`.
 - 2026-10-16: ruff ignores `E501` in the generated `contracts/` package, whose header and docstrings come from the schemas.
+- 2026-10-16: cleaning lives in `yt_digest_node.cleaning`: `parse_vtt(text) -> list[Cue]` (`Cue(start, end, lines)`, seconds as floats) and `paragraphs(cues, segments) -> list[str]`; step 2 (sponsor cuts) is left to the SponsorBlock ticket, so `segments` is accepted but not applied yet.
+- 2026-10-16: VTT blocks are separated by empty lines only (a line of spaces, as in YouTube auto tracks, stays a text line); the first block starting with `WEBVTT` is the header; a block with no timing line in its first two lines is skipped; CRLF and a BOM are accepted; timestamps may omit hours.
+- 2026-10-16: every `<…>` is removed as an inline tag, before entities are decoded (so `&lt;3` stays `<3`); a bracketed annotation is `[` up to the next `]`.
+- 2026-10-16: a "kept cue" (5.4 step 5) is a cue with at least one kept line; gaps are compared in whole milliseconds, so a 2.0 s gap always starts a paragraph despite float rounding.
