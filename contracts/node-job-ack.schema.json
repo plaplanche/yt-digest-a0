@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yt-digest/contracts/node-job-ack.schema.json",
+  "title": "NodeJobAck",
+  "description": "The response of POST /node/result and POST /node/release: the job's status now.",
+  "type": "object",
+  "properties": {
+    "video_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{11}$"
+    },
+    "status": {
+      "enum": ["queued", "leased", "done", "failed_video"]
+    }
+  },
+  "required": ["video_id", "status"],
+  "additionalProperties": false
+}

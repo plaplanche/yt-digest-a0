@@ -23,25 +23,34 @@ const TRANSCRIPT_RESULT_FIELDS: Record<string, { required: boolean; check: (valu
   pages: { required: true, check: (value) => Array.isArray(value) && value.every((item: unknown) => typeof item === "string") },
 };
 
-/** Checks a value against contracts/transcript-result.schema.json; throws on a violation. */
-export function parseTranscriptResult(value: unknown): TranscriptResult {
+/** Returns why a value is not a TranscriptResult, or null when it is one. */
+export function checkTranscriptResult(value: unknown): string | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("TranscriptResult: expected an object");
+    return "TranscriptResult: expected an object";
   }
   const record = value as Record<string, unknown>;
   for (const key of Object.keys(record)) {
     if (!Object.hasOwn(TRANSCRIPT_RESULT_FIELDS, key)) {
-      throw new Error(`TranscriptResult: unknown field ${key}`);
+      return `TranscriptResult: unknown field ${key}`;
     }
   }
   for (const [key, field] of Object.entries(TRANSCRIPT_RESULT_FIELDS)) {
     if (!Object.hasOwn(record, key)) {
       if (field.required) {
-        throw new Error(`TranscriptResult: missing field ${key}`);
+        return `TranscriptResult: missing field ${key}`;
       }
     } else if (!field.check(record[key])) {
-      throw new Error(`TranscriptResult: invalid field ${key}`);
+      return `TranscriptResult: invalid field ${key}`;
     }
+  }
+  return null;
+}
+
+/** Checks a value against contracts/transcript-result.schema.json; throws on a violation. */
+export function parseTranscriptResult(value: unknown): TranscriptResult {
+  const error = checkTranscriptResult(value);
+  if (error !== null) {
+    throw new Error(error);
   }
   return value as TranscriptResult;
 }

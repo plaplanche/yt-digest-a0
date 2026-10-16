@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yt-digest/contracts/node-claim-response.schema.json",
+  "title": "NodeClaimResponse",
+  "description": "The response of POST /node/claim: the jobs leased to the node, in order.",
+  "type": "object",
+  "properties": {
+    "jobs": {
+      "type": "array",
+      "items": {
+        "title": "ClaimedJob",
+        "description": "One job leased to the node.",
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{11}$"
+          },
+          "lease_id": {
+            "type": "string",
+            "minLength": 16
+          },
+          "lease_expires_at": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+          }
+        },
+        "required": ["video_id", "lease_id", "lease_expires_at"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["jobs"],
+  "additionalProperties": false
+}

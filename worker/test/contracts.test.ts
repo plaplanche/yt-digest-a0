@@ -61,7 +61,30 @@ describe("LogEvent", () => {
 
   test("the catalogue is a union of the event names", () => {
     const names: readonly LogEventName[] = LOG_EVENT_NAMES;
-    expect(names).toEqual(["service.started", "fetch.transcript", "sponsorblock.call"]);
+    expect(names).toEqual([
+      "service.started",
+      "fetch.transcript",
+      "sponsorblock.call",
+      "node.enrolled",
+      "node.revoked",
+      "node.heartbeat",
+      "job.enqueued",
+      "job.claimed",
+      "job.completed",
+      "job.released",
+      "job.lease_expired",
+      "job.stale_result",
+      "job.validation_failed",
+      "auth.bearer.rejected",
+      "auth.client.registered",
+      "auth.oauth.completed",
+      "auth.oauth.denied",
+      "auth.token.issued",
+      "auth.refresh.reuse_detected",
+      "auth.origin.rejected",
+      "mcp.tool.call",
+      "worker.call",
+    ]);
     // @ts-expect-error: an event outside the catalogue is not a LogEventName
     const unknown: LogEventName = "video.deleted";
     expect(LOG_EVENT_NAMES).not.toContain(unknown);

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yt-digest/contracts/node-result-request.schema.json",
+  "title": "NodeResultRequest",
+  "description": "The body of POST /node/result: the outcome of a leased job.",
+  "type": "object",
+  "properties": {
+    "lease_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "outcome": {
+      "enum": ["ok", "no_transcript", "unavailable", "blocked", "error"]
+    },
+    "transcript": {
+      "anyOf": [{"$ref": "transcript-result.schema.json"}, {"type": "null"}]
+    }
+  },
+  "required": ["lease_id", "outcome", "transcript"],
+  "additionalProperties": false
+}

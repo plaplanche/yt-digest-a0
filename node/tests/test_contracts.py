@@ -80,8 +80,28 @@ def test_the_catalogue_is_a_str_enum() -> None:
         "service.started",
         "fetch.transcript",
         "sponsorblock.call",
+        "node.enrolled",
+        "node.revoked",
+        "node.heartbeat",
+        "job.enqueued",
+        "job.claimed",
+        "job.completed",
+        "job.released",
+        "job.lease_expired",
+        "job.stale_result",
+        "job.validation_failed",
+        "auth.bearer.rejected",
+        "auth.client.registered",
+        "auth.oauth.completed",
+        "auth.oauth.denied",
+        "auth.token.issued",
+        "auth.refresh.reuse_detected",
+        "auth.origin.rejected",
+        "mcp.tool.call",
+        "worker.call",
     ]
     assert LogEventName("fetch.transcript") is LogEventName.FETCH_TRANSCRIPT
+    assert LogEventName("job.claimed") is LogEventName.JOB_CLAIMED
 
 
 @pytest.mark.parametrize(

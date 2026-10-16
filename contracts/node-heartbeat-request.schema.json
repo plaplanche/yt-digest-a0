@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yt-digest/contracts/node-heartbeat-request.schema.json",
+  "title": "NodeHeartbeatRequest",
+  "description": "The body of POST /node/heartbeat.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "uptime_s": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "jobs_in_progress": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "last_success_at": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+    },
+    "last_blocked_at": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+    },
+    "disk_free_ratio": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "cpu_temp_c": {
+      "type": "number"
+    }
+  },
+  "required": ["version", "uptime_s", "jobs_in_progress"],
+  "additionalProperties": false
+}

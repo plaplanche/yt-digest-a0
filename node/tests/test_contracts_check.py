@@ -72,3 +72,17 @@ def test_a_removed_generated_file_fails(repo: Path) -> None:
     result = check(repo)
     assert result.returncode == 1
     assert TS_TYPES in result.stderr
+
+
+def test_a_new_schema_changed_without_regeneration_fails(repo: Path) -> None:
+    edit(
+        repo,
+        "contracts/node-result-request.schema.json",
+        '"error"]',
+        '"error", "skipped"]',
+    )
+    result = check(repo)
+    assert result.returncode == 1
+    assert "node/src/yt_digest_node/contracts/node_result_request.py" in result.stderr
+    assert "worker/src/contracts/node-result-request.ts" in result.stderr
+    assert "transcript" not in result.stderr

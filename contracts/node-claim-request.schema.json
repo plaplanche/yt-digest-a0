@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yt-digest/contracts/node-claim-request.schema.json",
+  "title": "NodeClaimRequest",
+  "description": "The body of POST /node/claim; an absent max_jobs means 3.",
+  "type": "object",
+  "properties": {
+    "max_jobs": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+    }
+  },
+  "additionalProperties": false
+}

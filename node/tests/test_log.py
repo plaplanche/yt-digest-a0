@@ -46,6 +46,18 @@ def test_emit_accepts_the_event_name_and_a_level(
     assert "request_id" not in line
 
 
+def test_a_lot_2_event_is_accepted(capsys: pytest.CaptureFixture[str]) -> None:
+    emit(
+        "worker.call",
+        attrs={"endpoint": "claim", "status": 200, "duration_ms": 12},
+    )
+    emit(LogEventName.JOB_CLAIMED, video_id="dQw4w9WgXcQ")
+    events = [
+        json.loads(line)["event"] for line in capsys.readouterr().err.splitlines()
+    ]
+    assert events == ["worker.call", "job.claimed"]
+
+
 def test_an_event_outside_the_catalogue_raises(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
