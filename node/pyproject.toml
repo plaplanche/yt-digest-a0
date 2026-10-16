@@ -5,6 +5,7 @@ description = "yt-digest node: the transcript pipeline"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "pydantic>=2",
+    "yt-dlp>=2026.8.19",
 ]
 
 [dependency-groups]
