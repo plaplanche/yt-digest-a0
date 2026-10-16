@@ -1,0 +1,12 @@
+name = "yt-digest-worker"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "yt-digest"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "TRANSCRIPTS"
+bucket_name = "yt-digest-transcripts"
