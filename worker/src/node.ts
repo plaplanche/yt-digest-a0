@@ -5,7 +5,10 @@ import type { NodeHeartbeatResponse } from "./contracts/node-heartbeat-response"
 import { sha256Hex } from "./crypto";
 import { leaseSeconds, type Env } from "./env";
 import { bearer, HttpError, json, notFound, readBody } from "./http";
-import { claimJobs } from "./jobs";
+import { parseNodeReleaseRequest } from "./contracts/node-release-request";
+import { parseNodeResultRequest } from "./contracts/node-result-request";
+import { claimJobs, sweepExpired } from "./jobs";
+import { releaseLease, submitResult } from "./leases";
 import { log } from "./log";
 
 /** The node a token belongs to. */
@@ -14,11 +17,26 @@ interface Node {
   hourly_budget: number;
 }
 
-/** The node protocol (section 8): the route, then the node's bearer (8.1), then the body. */
+/**
+ * The node protocol (section 8): the route, then the node's bearer (8.1), then the body, then the
+ * expiry sweep (8.6).
+ */
 export async function handleNode(request: Request, env: Env, path: string): Promise<Response> {
   if (request.method !== "POST") throw notFound();
   if (path === "/node/heartbeat") return heartbeat(request, env, await authenticate(request, env));
   if (path === "/node/claim") return claim(request, env, await authenticate(request, env));
+  if (path === "/node/result") {
+    const node = await authenticate(request, env);
+    const body = await readBody(request, parseNodeResultRequest);
+    await sweepExpired(env);
+    return submitResult(env, node.node_id, body);
+  }
+  if (path === "/node/release") {
+    const node = await authenticate(request, env);
+    const body = await readBody(request, parseNodeReleaseRequest);
+    await sweepExpired(env);
+    return releaseLease(env, node.node_id, body);
+  }
   throw notFound();
 }
 
@@ -40,6 +58,7 @@ async function authenticate(request: Request, env: Env): Promise<Node> {
 /** `POST /node/heartbeat` (8.2). */
 async function heartbeat(request: Request, env: Env, node: Node): Promise<Response> {
   const body = await readBody(request, parseNodeHeartbeatRequest);
+  await sweepExpired(env);
   await env.DB.prepare("UPDATE nodes SET last_heartbeat_at = ?2, version = ?3 WHERE node_id = ?1")
     .bind(node.node_id, new Date().toISOString(), body.version)
     .run();
@@ -58,6 +77,7 @@ async function heartbeat(request: Request, env: Env, node: Node): Promise<Respon
 /** `POST /node/claim` (8.3). */
 async function claim(request: Request, env: Env, node: Node): Promise<Response> {
   const body = await readBody(request, parseNodeClaimRequest);
+  await sweepExpired(env);
   const seconds = leaseSeconds(env);
   const claims = await claimJobs(env, node.node_id, body.max_jobs ?? 3, seconds);
   for (const job of claims) {

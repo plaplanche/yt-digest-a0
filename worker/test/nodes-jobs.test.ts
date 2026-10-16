@@ -3,9 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { parseNodeClaimResponse } from "../src/contracts/node-claim-response";
 import { parseNodeHeartbeatResponse } from "../src/contracts/node-heartbeat-response";
 import { sha256Hex } from "../src/crypto";
-import { call, expectError } from "./helpers";
-
-const OPS = { Authorization: `Bearer ${env.OPS_TOKEN ?? ""}` };
+import { call, captureLogs, enqueue, enroll, expectError, job, OPS, videoIds } from "./helpers";
 
 beforeEach(async () => {
   await call("/ops/reset", { method: "POST", headers: OPS });
@@ -14,42 +12,6 @@ beforeEach(async () => {
 afterEach(() => {
   vi.restoreAllMocks();
 });
-
-function captureLogs(): () => Record<string, unknown>[] {
-  const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
-  return () => spy.mock.calls.map((args) => JSON.parse(String(args[0])) as Record<string, unknown>);
-}
-
-/** `count` distinct valid video ids, `prefix` padded to 11 characters. */
-function videoIds(prefix: string, count: number): string[] {
-  return Array.from({ length: count }, (_, i) => `${prefix}${String(i).padStart(11 - prefix.length, "0")}`);
-}
-
-async function enroll(nodeId: string): Promise<string> {
-  const response = await call("/ops/nodes", {
-    method: "POST",
-    headers: OPS,
-    body: JSON.stringify({ node_id: nodeId, owner_label: `owner of ${nodeId}` }),
-  });
-  expect(response.status).toBe(200);
-  return ((await response.json()) as { token: string }).token;
-}
-
-async function enqueue(ids: string[], priority?: number): Promise<{ enqueued: string[]; existing: string[] }> {
-  const response = await call("/ops/jobs", {
-    method: "POST",
-    headers: OPS,
-    body: JSON.stringify(priority === undefined ? { video_ids: ids } : { video_ids: ids, priority }),
-  });
-  expect(response.status).toBe(200);
-  return (await response.json()) as { enqueued: string[]; existing: string[] };
-}
-
-async function job(videoId: string): Promise<Record<string, unknown>> {
-  const response = await call(`/ops/jobs/${videoId}`, { headers: OPS });
-  expect(response.status).toBe(200);
-  return (await response.json()) as Record<string, unknown>;
-}
 
 function claimRequest(token: string, body: unknown = {}): Promise<Response> {
   return call("/node/claim", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
