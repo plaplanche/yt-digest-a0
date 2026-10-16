@@ -1,0 +1,55 @@
+# Fixed bootstrap workflow: pushed once by the owner, never edited by agents.
+# The CI itself is defined in ci/jobs.json, which agents edit freely:
+#   [{"name": "lint", "os": "ubuntu-latest", "run": "npm ci && npm run lint"}, ...]
+# Optional keys per job: "node" (version, default 22), "python" (version, default 3.12).
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      jobs: ${{ steps.read.outputs.jobs }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        shell: bash
+        run: |
+          if [ -f ci/jobs.json ]; then
+            echo "jobs=$(jq -c . ci/jobs.json)" >> "$GITHUB_OUTPUT"
+          else
+            echo 'jobs=[{"name":"no ci/jobs.json yet","os":"ubuntu-latest","run":"echo define ci/jobs.json"}]' >> "$GITHUB_OUTPUT"
+          fi
+  run:
+    needs: plan
+    name: ${{ matrix.job.name }}
+    runs-on: ${{ matrix.job.os || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        job: ${{ fromJSON(needs.plan.outputs.jobs) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.job.node || '22' }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.job.python || '3.12' }}
+      - name: ${{ matrix.job.name }}
+        shell: bash
+        run: ${{ matrix.job.run }}
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.job.name }}-artifacts
+          path: ci-artifacts/
+          if-no-files-found: ignore
